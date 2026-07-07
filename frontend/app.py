@@ -7,7 +7,7 @@ st.title("🎨 AI 브랜드 광고 제작소")
 st.caption("텍스트를 입력하면 로컬 GPU가 연산 후 화면에 즉시 표시하며, 본 페이지를 새로고침하거나 넘어가면 이미지는 서버에 남지 않고 완전히 휘발됩니다.")
 
 # 백엔드 API 주소
-BACKEND_URL = "http://localhost:8000/api/generate-ad"
+BACKEND_URL = "http://backend:8000/api/v1/generate"
 
 col1, col2 = st.columns([1, 1])
 

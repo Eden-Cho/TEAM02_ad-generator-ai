@@ -8,3 +8,4 @@ accelerate
 Pillow
 deep-translator
 numpy<2
+python-multipart

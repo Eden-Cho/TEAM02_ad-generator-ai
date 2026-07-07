@@ -1,52 +1,113 @@
-import streamlit as st
+"""AI 상세페이지 생성기 — Streamlit 프론트 (백엔드 API 연동 버전).
+
+백엔드(FastAPI)에 요청을 보내 상세페이지 + 썸네일을 받아 표시한다.
+실행: (1) backend에서 `uvicorn main:app --reload`  (2) `streamlit run frontend/app.py`
+"""
+import base64
+import io
+import json
+
 import requests
+import streamlit as st
+from PIL import Image
 
-st.set_page_config(page_title="2팀 AI 광고 제작소", layout="wide", page_icon="🎨")
+BACKEND = "http://localhost:8000"
 
-st.title("🎨 AI 브랜드 광고 제작소")
-st.caption("텍스트를 입력하면 로컬 GPU가 연산 후 화면에 즉시 표시하며, 본 페이지를 새로고침하거나 넘어가면 이미지는 서버에 남지 않고 완전히 휘발됩니다.")
+st.set_page_config(page_title="AI 상세페이지 생성기", layout="wide", page_icon="🛍️")
+st.title("🛍️ AI 상세페이지 생성기")
+st.caption("제품 사진·정보·스타일 → 상세페이지 + 메인/부가 썸네일 (백엔드 API 연동)")
 
-# 백엔드 API 주소
-BACKEND_URL = "http://localhost:8000/api/generate-ad"
 
-col1, col2 = st.columns([1, 1])
+@st.cache_data(ttl=300)
+def fetch_options():
+    return requests.get(f"{BACKEND}/api/options", timeout=10).json()
 
-with col1:
-    st.subheader("📋 광고 이미지 기획")
-    prompt_input = st.text_area(
-        "생성할 광고 컨셉을 입력하세요 (한글/영어 모두 가능):",
-        value="물방울이 맺힌 시원한 제로 탄산음료 캔, 현대적인 디자인, 네온 조명, 스튜디오 광고 사진, 극도로 사실적인, 8k 해상도",
-        height=150
-    )
-    steps = st.slider("생성 정밀도 (Inference Steps)", min_value=15, max_value=50, value=25)
-    generate_btn = st.button("광고 이미지 생성하기 🚀", use_container_width=True)
 
-with col2:
-    st.subheader("🖼️ 생성된 결과물 (선택 다운로드)")
-    
-    if generate_btn:
-        with st.spinner("백ends 서버에서 AI 이미지를 생성하여 스트리밍 중입니다..."):
-            try:
-                # 백엔드에 요청 전송
-                payload = {"prompt": prompt_input, "steps": steps}
-                response = requests.post(BACKEND_URL, json=payload, timeout=60)
-                
-                if response.status_code == 200:
-                    # 백엔드가 보낸 바이너리 이미지를 화면에 즉시 렌더링
-                    st.image(response.content, caption="생성된 임시 이미지 (미저장 상태)", use_container_width=True)
-                    st.success("✨ 이미지 생성 성공! 서버에 저장되지 않은 상태이므로 필요한 경우 반드시 다운로드하세요.")
-                    
-                    # 💾 유저의 선택적 저장을 위한 다운로드 버튼 제공
-                    st.download_button(
-                        label="이 이미지 내 컴퓨터에 저장하기 💾",
-                        data=response.content,
-                        file_name="my_generated_ad.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-                else:
-                    st.error(f"🔴 백엔드 연산 에러 (코드: {response.status_code})")
-            except Exception as e:
-                st.error(f"🔴 백엔드 서버 연결 실패: {e}")
+try:
+    opts = fetch_options()
+except Exception as e:
+    st.error(f"백엔드({BACKEND}) 연결 실패 — `uvicorn main:app --reload` 실행 여부를 확인하세요.\n\n{e}")
+    st.stop()
+
+# ---------- 사이드바: 스타일 (백엔드에서 받은 옵션으로 렌더) ----------
+st.sidebar.header("⚙️ 스타일 옵션")
+selections = {}
+for dim in opts["style_dimensions"]:
+    if dim["type"] == "scale":
+        chs = dim["choices"]
+        selections[dim["id"]] = st.sidebar.slider(dim["label"], min(chs), max(chs), dim["default"])
     else:
-        st.info("왼쪽 기획 창에 내용을 적고 버튼을 누르면 실시간으로 계산된 결과가 여기에 나타납니다.")
+        chs = dim["choices"]
+        idx = chs.index(dim["default"]) if dim["default"] in chs else 0
+        selections[dim["id"]] = st.sidebar.selectbox(dim["label"], chs, index=idx)
+theme_name = st.sidebar.selectbox("페이지 테마", ["light", "dark"])
+
+# ---------- 메인: 입력 ----------
+c1, c2 = st.columns(2)
+with c1:
+    product_name = st.text_input("상품명", "Apple Mac Mini M4")
+    color = st.text_input("색상", "실버")
+    category = st.selectbox("카테고리", opts["categories"], index=1)
+    emphasis = st.text_input("강조 요청", "손바닥만 한 컴팩트 크기와 강력한 성능")
+    product_details = st.text_area(
+        "상세 스펙/특징",
+        "M4 칩(10코어 CPU·10코어 GPU), 16GB 통합 메모리, 512GB SSD, "
+        "Thunderbolt 4 x3, USB-C, HDMI, 10Gb 이더넷, 12.7x12.7x5cm, 0.67kg",
+        height=110)
+with c2:
+    product_files = st.file_uploader("제품 이미지 (제품만 나온 사진, 여러 장)",
+                                     accept_multiple_files=True,
+                                     type=["jpg", "jpeg", "png", "webp"])
+    app_files = st.file_uploader("응용·사용 이미지 (손·사용장면) — 선택",
+                                 accept_multiple_files=True,
+                                 type=["jpg", "jpeg", "png", "webp"])
+
+# ---------- 생성 (백엔드 호출) ----------
+if st.button("🚀 상세페이지 생성", type="primary", use_container_width=True):
+    if not product_files:
+        st.error("제품 이미지를 1장 이상 올려주세요.")
+        st.stop()
+
+    req = {"product_name": product_name, "color": color, "category": category,
+           "emphasis": emphasis, "product_details": product_details, **selections}
+
+    files = [("product_files", (f.name, f.getvalue(), f.type or "image/png"))
+             for f in product_files]
+    files += [("app_files", (f.name, f.getvalue(), f.type or "image/png"))
+              for f in (app_files or [])]
+
+    with st.spinner("백엔드에서 생성 중… (이미지 생성에 수십 초 걸립니다)"):
+        try:
+            resp = requests.post(
+                f"{BACKEND}/api/generate-detail-page",
+                data={"req_json": json.dumps(req), "theme_name": theme_name},
+                files=files, timeout=600)
+        except Exception as e:
+            st.error(f"요청 실패: {e}")
+            st.stop()
+
+    if resp.status_code != 200:
+        st.error(f"생성 실패 ({resp.status_code}): {resp.text[:300]}")
+        st.stop()
+
+    r = resp.json()
+    st.success(f"✅ 완료 — {r['seconds']}초")
+
+    page_bytes = base64.b64decode(r["detail_page"])
+    page = Image.open(io.BytesIO(page_bytes))
+    main = Image.open(io.BytesIO(base64.b64decode(r["main"])))
+    gallery = [Image.open(io.BytesIO(base64.b64decode(g))) for g in r["gallery"]]
+
+    tab1, tab2 = st.tabs(["📄 상세이미지", "🖼️ 썸네일 (메인/부가)"])
+    with tab1:
+        st.image(page, use_container_width=True)
+        st.download_button("상세이미지 다운로드 (PNG)", page_bytes,
+                           "detail_page.png", "image/png", use_container_width=True)
+    with tab2:
+        st.write("**메인이미지** (흰배경 1:1)")
+        st.image(main, width=280)
+        if gallery:
+            st.write("**부가이미지**")
+            cols = st.columns(min(len(gallery), 4))
+            for i, g in enumerate(gallery):
+                cols[i % len(cols)].image(g, caption=f"부가 {i + 1}")

@@ -1,7 +1,11 @@
-from pydantic import BaseModel
-from typing import List, Optional
+"""요청/응답 규격 (Pydantic)."""
+from typing import List
 
-# 이미지 생성 요청 규격
-class AdRequest(BaseModel):
-    prompt: str
-    steps: int = 25
+from pydantic import BaseModel
+
+
+class GenerateResponse(BaseModel):
+    detail_page: str        # 상세이미지 (base64 PNG)
+    main: str               # 메인 썸네일 (base64 JPG)
+    gallery: List[str]      # 부가 썸네일들 (base64 JPG)
+    seconds: float          # 생성 소요시간

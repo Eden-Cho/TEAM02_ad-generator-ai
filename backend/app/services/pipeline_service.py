@@ -50,7 +50,7 @@ def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
         _log(f"   · [{i}/{len(specs)}] {spec['role']} 생성 중…")
         images_by_role[spec["role"]] = image_generator.generate_image(
             spec, spec.get("image_path"), ctx["size"])
-
+    
     _log("4/5 상세페이지 조립…")
     page = build_rich_page(profile, images_by_role, page_copy, spec_table,
                            theme_name, ctx["page_width"])

@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+torch==2.4.0
+diffusers==0.29.0
+transformers==4.44.0
+accelerate
+Pillow
+deep-translator
+numpy<2
+python-multipart

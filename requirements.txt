@@ -1,0 +1,13 @@
+# AI 상세페이지 생성 서비스 (Service 01) — 경량 (로컬 GPU 모델 불필요)
+# --- 프론트 ---
+streamlit>=1.30
+requests>=2.31
+# --- 백엔드 ---
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+# --- 모델/파이프라인 ---
+openai>=1.40.0
+python-dotenv>=1.0.0
+pillow>=10.0.0
+rembg>=2.0.50

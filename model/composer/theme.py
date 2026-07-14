@@ -35,8 +35,16 @@ LIGHT = Theme(name="light", bg=(255, 255, 255), text=(24, 24, 24),
               sub=(90, 90, 90), muted=(160, 160, 160))
 
 
+import os
+
 def get_theme(name: str = "dark", page_width: int | None = None) -> Theme:
     theme = LIGHT if name == "light" else DARK
-    if page_width:   # 사이트별 상세폭 오버라이드 (싱글턴 보호 위해 복사)
+    
+    # 호출되는 순간 실제 환경 변수(도커 리눅스 나눔폰트)가 있으면 
+    # 기존 맥 경로를 무시하고 온전하게 새 경로를 복사해서 전달.
+    current_font = os.getenv("FONT_PATH", theme.font_path)
+    theme = replace(theme, font_path=current_font)
+    
+    if page_width:   # 사이트별 상세폭 오버라이드
         theme = replace(theme, page_width=page_width)
     return theme

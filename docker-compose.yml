@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    # 컨테이너 내부의 /app/backend 폴더 안에서 main.py를 실행하도록 조율하는 구간이다.
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      # 루트 계층의 backend 폴더와 model 폴더를 컨테이너 내부의 /app 밑에 각각 꽂아주는 구간이다.
+      - ./backend:/app/backend
+      - ./model:/app/model
+    environment:
+      # 파이썬 최상위 탐색 기준점을 /app으로 잡아 모듈 누락을 방지하는 구간이다.
+      - PYTHONPATH=/app
+    # model 폴더 내부에 있는 환경 변수 파일을 정확히 짚어서 연동하는 구간이다.
+    env_file:
+      - ./model/.env
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      # 루트 계층의 frontend 폴더를 컨테이너 내부의 /app 밑에 실시간 연결하는 구간이다.
+      - ./frontend:/app
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=true
+    depends_on:
+      - backend

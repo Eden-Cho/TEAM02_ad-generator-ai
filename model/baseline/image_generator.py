@@ -78,6 +78,16 @@ def generate_image(spec: dict, product_image_path: str | None = None,
         fitted = fit_to_ratio(Image.open(product_image_path), w, h)
 
         edit_prompt = _keep_clause(creativity) + prompt
+
+        # 보존 모드(창의성 ≤2): 마스크로 제품 픽셀 보존, 배경만 재생성.
+        # (마스크 없으면 edit이 전체를 재생성해 제품 비율·디테일이 어긋남)
+        if mask is None and creativity <= 2:
+            try:
+                from baseline import bg_remover
+                mask = bg_remover.make_edit_mask(fitted)   # 제품=불투명 / 배경=투명
+            except Exception:
+                mask = None   # rembg 미설치 등 → 마스크 없이 진행
+
         kwargs = dict(
             model=config.IMAGE_MODEL,
             image=_png_upload(fitted, "product.png"),
@@ -85,7 +95,7 @@ def generate_image(spec: dict, product_image_path: str | None = None,
             size=size,
         )
         if mask is not None:
-            # 마스크도 동일 크기로 맞춰 전달 (투명=배경=편집영역)
+            # 투명(배경)=편집영역 / 불투명(제품)=보존. 동일 크기로 맞춰 전달.
             kwargs["mask"] = _png_upload(mask.resize((w, h)).convert("RGBA"),
                                          "mask.png")
         resp = client().images.edit(**kwargs)

@@ -14,9 +14,11 @@ if str(_MODEL) not in sys.path:
 import baseline.config as config  # noqa: E402  (.env·모델ID 로드)
 from baseline import copy_generator, image_generator, prompt_generator  # noqa: E402
 from baseline.archetypes import get_profile, resolve_image_slots  # noqa: E402
-from baseline.style_presets import build_style_context, ui_dimensions  # noqa: E402  (재노출)
+from baseline.style_presets import build_style_context, ui_dimensions, export_targets  # noqa: E402,F401  (재노출)
 from composer import thumbnails  # noqa: E402
 from composer.build import build_rich_page  # noqa: E402
+from geo.geo_layer import geo_main  # noqa: E402  (GEO 텍스트 레이어)
+from baseline.observability import observe, flush  # noqa: E402  (LangFuse 관측)
 
 # 다나와식 대분류 → 내부 6 아키타입으로 자동 매핑
 CATEGORIES = ["가전·TV", "컴퓨터·노트북·조립PC", "태블릿·모바일·디카", "패션·잡화",
@@ -27,6 +29,7 @@ def _log(msg: str):
     print(f"[생성] {msg}", flush=True)
 
 
+@observe(name="run_pipeline")
 def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
                  theme_name: str = "light") -> dict:
     """제품정보+사진 → 상세페이지(PIL) + 메인/부가 썸네일(PIL) + 소요시간."""
@@ -49,7 +52,7 @@ def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
     for i, spec in enumerate(specs, 1):
         _log(f"   · [{i}/{len(specs)}] {spec['role']} 생성 중…")
         images_by_role[spec["role"]] = image_generator.generate_image(
-            spec, spec.get("image_path"), ctx["size"])
+            spec, spec.get("image_path"), ctx["size"], creativity=ctx["creativity"])
 
     _log("4/5 상세페이지 조립…")
     page = build_rich_page(profile, images_by_role, page_copy, spec_table,
@@ -58,6 +61,10 @@ def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
     main = thumbnails.main_thumbnail(product_paths[0])
     gallery = thumbnails.gallery_thumbnails(images_by_role, roles)
 
+    _log("GEO 텍스트 레이어 생성…")
+    geo = geo_main(req, profile, page_copy, spec_table)
+
     secs = round(time.time() - t0, 1)
     _log(f"완료 — {secs}초")
-    return {"page": page, "main": main, "gallery": gallery, "seconds": secs}
+    flush()  # 대기 중 LangFuse 트레이스 전송 (비활성이면 no-op)
+    return {"page": page, "main": main, "gallery": gallery, "seconds": secs, **geo}

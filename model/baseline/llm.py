@@ -10,21 +10,25 @@
 import time
 
 from openai import OpenAI
+from langchain_openai import ChatOpenAI
 
 import baseline.config as config
 from baseline._json import parse_json
+from baseline.observability import langchain_handler
 
 _client = None
 _base_url = None   # None이면 config.TEXT_BASE_URL 사용
 _model = None      # None이면 config.TEXT_MODEL 사용
+_chat = None       # LangChain ChatOpenAI 캐시
 
 
 def configure(base_url: str | None = None, model: str | None = None):
     """런타임 텍스트 백엔드 지정. base_url을 주면 그쪽(Ollama 등)을 사용."""
-    global _client, _base_url, _model
+    global _client, _base_url, _model, _chat
     _base_url = base_url
     _model = model
     _client = None  # 다음 호출 때 재생성
+    _chat = None
 
 
 def _effective_base() -> str | None:
@@ -37,6 +41,7 @@ def text_model() -> str:
 
 
 def text_client() -> OpenAI:
+    """raw OpenAI 클라이언트 (하위호환 — 노트북 등 직접 호출용)."""
     global _client
     if _client is None:
         base = _effective_base()
@@ -47,29 +52,43 @@ def text_client() -> OpenAI:
     return _client
 
 
+def _chat_model() -> ChatOpenAI:
+    """LangChain ChatOpenAI (base_url·model 반영, 캐시). Ollama는 base_url로 지원."""
+    global _chat
+    if _chat is None:
+        base = _effective_base()
+        kwargs = dict(model=text_model(), temperature=1,
+                      api_key=config.OPENAI_API_KEY or "ollama")
+        if base:
+            kwargs["base_url"] = base
+        _chat = ChatOpenAI(**kwargs)
+    return _chat
+
+
 def chat_json(system: str, user: str, retries: int = 3) -> dict:
-    """JSON 응답 chat — JSON 강제(A) + 관대한 파싱·재시도(B). 로컬 LLM의 간헐적 깨짐/빈응답 방어.
+    """JSON 응답 chat — LangChain(ChatOpenAI) 호출 + LangFuse 추적. 계약은 동일.
 
     - response_format으로 JSON 강제 (A)
     - parse_json이 코드펜스·주변텍스트·트레일링콤마 복구 (B)
-    - 빈 응답·파싱 실패 시 재시도 (B). temperature는 건드리지 않음 — 기본값은 비결정적이라
-      재시도할 때마다 다른(정상) 출력이 나옴. (temp=0으로 고정하면 빈응답이 그대로 반복됨)
+    - 빈 응답·파싱 실패 시 재시도 (B). temperature는 기본값(비결정적) 유지 — 재시도마다
+      다른(정상) 출력이 나오게. LangFuse 키가 있으면 각 호출이 자동 추적됨.
     """
     is_local = _effective_base() is not None
+    handler = langchain_handler()
+    invoke_cfg = {"callbacks": [handler]} if handler else {}
     last = None
     for attempt in range(retries + 1):
         hint = "" if attempt == 0 else "\n\n(중요: 설명·코드펜스 없이 유효한 JSON만 출력하세요.)"
-        kwargs = dict(
-            model=text_model(),
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user + hint}],
-            response_format={"type": "json_object"},
-        )
+        bind = {"response_format": {"type": "json_object"}}
         if is_local:   # Ollama num_predict — 긴 출력 잘림(truncation) 방지
-            kwargs["max_tokens"] = 2048
+            bind["max_tokens"] = 2048
         try:
-            resp = text_client().chat.completions.create(**kwargs)
-            content = (resp.choices[0].message.content or "").strip()
+            resp = _chat_model().bind(**bind).invoke(
+                [("system", system), ("human", user + hint)],
+                config=invoke_cfg,
+            )
+            content = resp.content if isinstance(resp.content, str) else str(resp.content)
+            content = content.strip()
             if not content:
                 raise ValueError("빈 응답")
             return parse_json(content)

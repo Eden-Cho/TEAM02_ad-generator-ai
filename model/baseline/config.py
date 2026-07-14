@@ -53,8 +53,17 @@ TEXT_BASE_URL = os.getenv("TEXT_BASE_URL", "")
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1-mini")
 IMAGE_SIZE = os.getenv("IMAGE_SIZE", "1024x1024")
 
-# 한글 폰트 (기본 = 맥 시스템 폰트)
-FONT_PATH = os.getenv("FONT_PATH", "/System/Library/Fonts/AppleSDGothicNeo.ttc")
+# 한글 폰트 — Docker(fonts-nanum) 기본, 없으면 존재하는 후보로 자동 폴백.
+# FONT_PATH 로 명시하면 그 경로 우선. (Docker=Nanum / macOS=AppleSDGothicNeo 둘 다 동작)
+_FONT_CANDIDATES = [
+    os.getenv("FONT_PATH"),                                    # 명시 경로(우선)
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",        # Docker/Linux (fonts-nanum)
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",             # macOS
+]
+FONT_PATH = next(
+    (p for p in _FONT_CANDIDATES if p and os.path.exists(p)),
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",        # 최종 기본(Docker)
+)
 
 # 로컬 SDXL 실험 (baseline_02) 설정
 SDXL_BASE_MODEL = os.getenv("SDXL_BASE_MODEL", "stabilityai/stable-diffusion-xl-base-1.0")

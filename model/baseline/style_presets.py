@@ -137,6 +137,18 @@ STYLE_DIMENSIONS: dict[str, dict] = {
             5: "프리미엄 가치와 고급감을 최우선으로 강조.",
         },
     },
+    # 11) 창의성 (단계 1~5) — 낮을수록 제품 보존, 높을수록 자유로운 재해석(정확도↓)
+    "creativity": {
+        "type": "scale", "target": "image", "label": "창의성 (↑=자유, 제품정확도↓)",
+        "default": 2, "order": 11,
+        "levels": {
+            1: "faithful, product-focused composition",
+            2: "clean, product-focused composition",
+            3: "varied camera angle and creative composition",
+            4: "bold creative composition, dynamic angle, artistic styling",
+            5: "highly artistic reinterpretation, dramatic and unique composition",
+        },
+    },
 }
 
 
@@ -148,6 +160,18 @@ DETAIL_PAGE_WIDTH = {
     "가로 배너": 1080,
 }
 DEFAULT_PAGE_WIDTH = 1080
+
+# 상세페이지(세로 긴 이미지) 마켓별 내보내기 폭 — 한 번 생성 후 규격별로 리사이즈 export
+DETAIL_EXPORT_TARGETS = [
+    {"name": "네이버 스마트스토어", "width": 860},
+    {"name": "쿠팡", "width": 780},
+    {"name": "고해상 (1080)", "width": 1080},
+]
+
+
+def export_targets() -> list[dict]:
+    """마켓별 상세페이지 내보내기 대상(이름·폭). UI가 다운로드 버튼을 그린다."""
+    return [dict(t) for t in DETAIL_EXPORT_TARGETS]
 
 
 def _keyword_for(dim: dict, value):
@@ -185,11 +209,13 @@ def build_style_context(selections: dict) -> dict:
             copy_directives[dim_id] = keyword
 
     site = selections.get("site_spec", STYLE_DIMENSIONS["site_spec"]["default"])
+    creativity = int(selections.get("creativity", STYLE_DIMENSIONS["creativity"]["default"]))
     return {
         "image_keywords": image_keywords,
         "copy_directives": copy_directives,
         "size": size,
         "page_width": DETAIL_PAGE_WIDTH.get(site, DEFAULT_PAGE_WIDTH),
+        "creativity": creativity,   # 1~5, 이미지 생성 보존↔재해석 강도
     }
 
 

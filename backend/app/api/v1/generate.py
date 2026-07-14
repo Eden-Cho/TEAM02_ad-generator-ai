@@ -8,7 +8,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from app.services.pipeline_service import CATEGORIES, run_pipeline, ui_dimensions
+from app.services.pipeline_service import (CATEGORIES, export_targets,
+                                           run_pipeline, ui_dimensions)
 from schemas import GenerateResponse
 
 router = APIRouter(prefix="/api")
@@ -16,8 +17,9 @@ router = APIRouter(prefix="/api")
 
 @router.get("/options")
 def options():
-    """프론트가 사이드바를 그리기 위한 스타일 옵션·카테고리 목록."""
-    return {"style_dimensions": ui_dimensions(), "categories": CATEGORIES}
+    """프론트가 사이드바·내보내기 버튼을 그리기 위한 옵션·카테고리·규격 목록."""
+    return {"style_dimensions": ui_dimensions(), "categories": CATEGORIES,
+            "export_targets": export_targets()}
 
 
 def _b64(img, fmt: str = "PNG") -> str:
@@ -63,4 +65,8 @@ async def generate_detail_page(
         main=_b64(r["main"], "JPEG"),
         gallery=[_b64(g, "JPEG") for g in r["gallery"]],
         seconds=r["seconds"],
+        geo_html=r.get("geo_html", ""),
+        structured_data=r.get("structured_data", []),
+        faq=r.get("faq", []),
+        warnings=r.get("warnings", []),
     )

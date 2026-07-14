@@ -3,6 +3,7 @@
 블록 종류: hero / feature / text / spec_table / cta / divider
 공통 규칙: 폭 = theme.page_width, 높이 = 내용에 따라 가변.
 """
+import unicodedata
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -14,6 +15,24 @@ from composer.theme import Theme
 
 def _font(theme: Theme, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(theme.font_path, size)
+
+
+# 폰트에 없어 깨지는 특수문자(비표준 하이픈·공백·zero-width) → 안전한 문자로 정규화
+def _clean(s: str) -> str:
+    if not s:
+        return s
+    out = []
+    for ch in s:
+        cat = unicodedata.category(ch)
+        if cat == "Pd":            # 각종 대시/하이픈 → '-'
+            out.append("-")
+        elif cat == "Zs":          # 각종 공백 → 일반 공백
+            out.append(" ")
+        elif cat == "Cf" or ch == "\uFE0F":  # format/zero-width·variation selector 제거
+            continue
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _load(image) -> Image.Image:
@@ -31,6 +50,7 @@ def fit_width(img: Image.Image, width: int) -> Image.Image:
 
 def _wrap(draw, text: str, font, max_w: int) -> list[str]:
     """공백 우선, 넘치면 글자 단위로 줄바꿈 (한글 대응)."""
+    text = _clean(text)
     lines, cur = [], ""
     for word in text.split(" "):
         trial = (cur + " " + word).strip()
@@ -157,27 +177,41 @@ def render_text(theme: Theme, headline: str = "", sub: str = "",
 
 
 def render_spec_table(theme: Theme, title: str, rows: list) -> Image.Image:
-    """스펙/비교 표. rows = [(label, value), ...]."""
+    """스펙/비교 표. rows = [(label, value), ...]. 긴 값은 줄바꿈(오버플로우 방지)."""
     width = theme.page_width
     title_f, cell_f = _font(theme, theme.h2), _font(theme, theme.body)
-    row_h = int(theme.body * 2.1)
+    measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    x_label, x_val = theme.margin, width // 2
+    max_w_val = width - theme.margin - x_val      # 값 컬럼 가용 폭
+    lh = _line_h(cell_f, theme.body)
+    v_pad = int(theme.body * 0.6)                 # 셀 상하 여백
+
+    # 행별로 값을 줄바꿈하고 행 높이를 계산
+    prepared = []   # (label, value_lines, row_h)
+    for label, value in rows:
+        vlines = _wrap(measure, str(value), cell_f, max_w_val) or [""]
+        rh = max(int(theme.body * 2.1), lh * len(vlines) + v_pad * 2)
+        prepared.append((_clean(str(label)), vlines, rh))
+
     pad = 60
     th = _line_h(title_f, theme.h2)
-    height = pad + th + 24 + row_h * len(rows) + pad
+    height = pad + th + 24 + sum(rh for _, _, rh in prepared) + pad
 
     img = Image.new("RGB", (width, height), theme.bg)
     draw = ImageDraw.Draw(img)
+    title = _clean(title)
     draw.text(((width - draw.textlength(title, font=title_f)) / 2, pad),
               title, font=title_f, fill=theme.text)
 
     y = pad + th + 24
-    x_label, x_val = theme.margin, width // 2
-    for label, value in rows:
+    for label, vlines, rh in prepared:
         draw.line([(theme.margin, y), (width - theme.margin, y)], fill=theme.muted, width=1)
-        ty = y + (row_h - theme.body) // 2 - 4
-        draw.text((x_label, ty), str(label), font=cell_f, fill=theme.sub)
-        draw.text((x_val, ty), str(value), font=cell_f, fill=theme.text)
-        y += row_h
+        draw.text((x_label, y + v_pad), label, font=cell_f, fill=theme.sub)
+        vy = y + v_pad
+        for vl in vlines:
+            draw.text((x_val, vy), vl, font=cell_f, fill=theme.text)
+            vy += lh
+        y += rh
     draw.line([(theme.margin, y), (width - theme.margin, y)], fill=theme.muted, width=1)
     return img
 
@@ -186,6 +220,7 @@ def render_cta(theme: Theme, text: str) -> Image.Image:
     """구매 유도 — 가운데 버튼형."""
     width = theme.page_width
     f = _font(theme, theme.h2)
+    text = _clean(text)
     measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     tw = measure.textlength(text, font=f)
     th = _line_h(f, theme.h2)

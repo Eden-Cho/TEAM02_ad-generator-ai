@@ -11,3 +11,7 @@ openai>=1.40.0
 python-dotenv>=1.0.0
 pillow>=10.0.0
 rembg>=2.0.50
+# --- LLM 프레임워크·관측 (텍스트 게이트웨이 + LangFuse 추적) ---
+langchain>=0.3
+langchain-openai>=0.2
+langfuse>=3.0

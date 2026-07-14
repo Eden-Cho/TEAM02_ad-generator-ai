@@ -11,6 +11,7 @@ from openai import OpenAI
 from PIL import Image
 
 import baseline.config as config
+from baseline.observability import observe
 from baseline.preprocess import fit_to_ratio, parse_size
 
 _client = None
@@ -40,12 +41,33 @@ def _decode(resp) -> Image.Image:
     raise RuntimeError(f"이미지 응답에 b64_json이 없습니다: {d}")
 
 
+def _keep_clause(creativity: int) -> str:
+    """창의성 단계별 제품 보존 강도 지시.
+
+    1~2=엄격 보존(기존) · 3=각도·구도 자유(정체성 유지) · 4~5=대담한 재해석(참고용).
+    """
+    if creativity <= 2:
+        return ("Keep the product from the input image exactly as it is "
+                "(same shape, color, proportions, details). "
+                "Replace only the surrounding background and scene with: ")
+    if creativity == 3:
+        return ("Keep the product's identity, colors, logo and key proportions clearly "
+                "recognizable, but you MAY change the camera angle, composition, styling "
+                "and background creatively for: ")
+    return ("Use the input product as a reference for its identity and colors, but "
+            "reimagine it in a fresh, striking scene with a new angle and bold, "
+            "artistic composition: ")
+
+
+@observe(name="generate_image")
 def generate_image(spec: dict, product_image_path: str | None = None,
                    size: str | None = None,
-                   mask: Image.Image | None = None) -> Image.Image:
+                   mask: Image.Image | None = None,
+                   creativity: int = 2) -> Image.Image:
     """spec 대로 이미지 생성.
 
     mask: (선택) bg_remover.make_edit_mask() 결과. 주면 제품 보존 정밀도가 올라감.
+    creativity: 1~5. 낮을수록 제품 보존, 높을수록 자유로운 재해석(정확도↓).
     """
     mode = spec.get("mode", "t2i")
     prompt = spec["prompt"]
@@ -55,11 +77,17 @@ def generate_image(spec: dict, product_image_path: str | None = None,
         w, h = parse_size(size)
         fitted = fit_to_ratio(Image.open(product_image_path), w, h)
 
-        edit_prompt = (
-            "Keep the product from the input image exactly as it is "
-            "(same shape, color, proportions, details). "
-            "Replace only the surrounding background and scene with: " + prompt
-        )
+        edit_prompt = _keep_clause(creativity) + prompt
+
+        # 보존 모드(창의성 ≤2): 마스크로 제품 픽셀 보존, 배경만 재생성.
+        # (마스크 없으면 edit이 전체를 재생성해 제품 비율·디테일이 어긋남)
+        if mask is None and creativity <= 2:
+            try:
+                from baseline import bg_remover
+                mask = bg_remover.make_edit_mask(fitted)   # 제품=불투명 / 배경=투명
+            except Exception:
+                mask = None   # rembg 미설치 등 → 마스크 없이 진행
+
         kwargs = dict(
             model=config.IMAGE_MODEL,
             image=_png_upload(fitted, "product.png"),
@@ -67,7 +95,7 @@ def generate_image(spec: dict, product_image_path: str | None = None,
             size=size,
         )
         if mask is not None:
-            # 마스크도 동일 크기로 맞춰 전달 (투명=배경=편집영역)
+            # 투명(배경)=편집영역 / 불투명(제품)=보존. 동일 크기로 맞춰 전달.
             kwargs["mask"] = _png_upload(mask.resize((w, h)).convert("RGBA"),
                                          "mask.png")
         resp = client().images.edit(**kwargs)

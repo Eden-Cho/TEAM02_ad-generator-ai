@@ -9,6 +9,9 @@ import time
 import base64
 import os
 
+# 🎯 랭퓨즈 관측용 데코레이터 임포트
+from langfuse import observe
+
 NANUM_FONT = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
 os.environ["FONT_PATH"] = NANUM_FONT
 os.environ["font_path"] = NANUM_FONT
@@ -44,7 +47,9 @@ def get_options():
     }
 
 
+# 🎯 [수정] 랭퓨즈 추적 레이어 주입 (대시보드에 나타날 트레이스 이름 지정)
 @app.post("/api/generate-detail-page")
+@observe(name="generate_detail_page_pipeline")
 async def generate_detail_page(
     req_json: str = Form(...),
     theme_name: str = Form("light"),

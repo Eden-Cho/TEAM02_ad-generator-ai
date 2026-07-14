@@ -8,3 +8,6 @@ model/outputs/
 __pycache__/
 *.pyc
 .DS_Store
+.venv/
+Miniconda3-*
+backend/model_hf/.env

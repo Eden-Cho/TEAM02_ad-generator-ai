@@ -2,13 +2,14 @@ version: "3.8"
 
 services:
   # =========================================================================
-  # 🌐 1. 기존 OpenAI 백엔드 서비스 (안전 구역, 기존 포트 8000 유지)
+  # 🌐 1. 기존 OpenAI 백엔드 서비스 (안전 구역, 실행 경로 교정 및 리로더 제거)
   # =========================================================================
   backend:
     build: ./backend
     ports:
       - "8000:8000"
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    # 🎯 [핵심 패치] uvicorn이 올바른 패키지 위치에서 안전하게 작동하도록 수정하고, --reload를 완전히 제거합니다.
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend:/app/backend
       - ./model:/app/model
@@ -25,7 +26,7 @@ services:
   #   build: ./backend
   #   ports:
   #     - "8001:8001"
-  #   command: uvicorn backend.main_hf:app --host 0.0.0.0 --port 8001 --reload
+  #   command: uvicorn backend.main_hf:app --host 0.0.0.0 --port 8001
   #   volumes:
   #     - ./backend:/app/backend
   #     - ./model_hf:/app/model_hf

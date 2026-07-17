@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 from PIL import Image
 
-BACKEND = "http://localhost:8000"
+BACKEND = "http://backend:8000"
 
 st.set_page_config(page_title="AI 상세페이지 생성기", layout="wide", page_icon="🛍️")
 st.title("🛍️ AI 상세페이지 생성기")

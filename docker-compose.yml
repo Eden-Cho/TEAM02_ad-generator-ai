@@ -1,31 +1,61 @@
 version: "3.8"
 
 services:
+  # =========================================================================
+  # 🌐 1. 기존 OpenAI 백엔드 서비스 (안전 구역, 기존 포트 8000 유지)
+  # =========================================================================
   backend:
     build: ./backend
     ports:
       - "8000:8000"
-    # 컨테이너 내부의 /app/backend 폴더 안에서 main.py를 실행하도록 조율하는 구간이다.
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      # 루트 계층의 backend 폴더와 model 폴더를 컨테이너 내부의 /app 밑에 각각 꽂아주는 구간이다.
       - ./backend:/app/backend
       - ./model:/app/model
     environment:
-      # 파이썬 최상위 탐색 기준점을 /app으로 잡아 모듈 누락을 방지하는 구간이다.
       - PYTHONPATH=/app
-    # model 폴더 내부에 있는 환경 변수 파일을 정확히 짚어서 연동하는 구간이다.
     env_file:
       - ./model/.env
 
+  # =========================================================================
+  # 🖥️ 2. 신규 허깅페이스 로컬 백엔드 서비스 (독립 가동, 신규 포트 8001 및 GPU 맵핑)
+  #    💡 개발 완료 후 연동 시, 아래 주석(#)들을 싹 해제하시면 가동됩니다.
+  # =========================================================================
+  # backend-hf:
+  #   build: ./backend
+  #   ports:
+  #     - "8001:8001"
+  #   command: uvicorn backend.main_hf:app --host 0.0.0.0 --port 8001 --reload
+  #   volumes:
+  #     - ./backend:/app/backend
+  #     - ./model_hf:/app/model_hf
+  #     - ./model:/app/model
+  #   environment:
+  #     - PYTHONPATH=/app
+  #   env_file:
+  #     - ./model_hf/.env
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+  # =========================================================================
+  # 🎨 3. 기존 프론트엔드 서비스 (상황에 따라 주석 제어로 백엔드 동기화 스위칭)
+  # =========================================================================
   frontend:
     build: ./frontend
     ports:
       - "8501:8501"
     volumes:
-      # 루트 계층의 frontend 폴더를 컨테이너 내부의 /app 밑에 실시간 연결하는 구간이다.
-      - ./frontend:/app
+      - ./backend:/app/backend
+      - ./model:/app/model
+      - ./model_hf:/app/model_hf
     environment:
       - STREAMLIT_SERVER_HEADLESS=true
     depends_on:
       - backend
+      # 🎯 [모델 스위칭 힌트] 신규 허깅페이스 모델로 전환할 때만 아래 주석을 풀어주세요!
+      # - backend-hf

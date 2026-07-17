@@ -74,3 +74,7 @@ SDXL_STEPS = int(os.getenv("SDXL_STEPS", "30"))
 # MPS(Apple)에서 float16은 검은 이미지(NaN) 발생 → 기본 float32.
 # 빠르게 실험하려면 bfloat16 시도 (float16은 비권장).
 SDXL_DTYPE = os.getenv("SDXL_DTYPE", "float32")
+
+os.environ["LANGFUSE_PUBLIC_KEY"] = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+os.environ["LANGFUSE_SECRET_KEY"] = os.getenv("LANGFUSE_SECRET_KEY", "")
+os.environ["LANGFUSE_HOST"] = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")

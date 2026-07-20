@@ -20,6 +20,9 @@ from composer.build import build_rich_page  # noqa: E402
 from geo.geo_layer import geo_main  # noqa: E402  (GEO 텍스트 레이어)
 from baseline.observability import observe, flush  # noqa: E402  (LangFuse 관측)
 
+# 🎯 [추가] 강사님이 주신 이미지 품질 평가(CLIP, BRISQUE) 모듈 임포트
+from app.services.scorer import score_images, attach_scores_to_langfuse
+
 # 다나와식 대분류 → 내부 6 아키타입으로 자동 매핑
 CATEGORIES = ["가전·TV", "컴퓨터·노트북·조립PC", "태블릿·모바일·디카", "패션·잡화",
               "뷰티", "식품", "가구·조명", "생활·주방·건강", "스포츠·골프", "반려·취미·사무"]
@@ -56,7 +59,7 @@ def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
 
     _log("4/5 상세페이지 조립…")
     page = build_rich_page(profile, images_by_role, page_copy, spec_table,
-                           theme_name, ctx["page_width"])
+                            theme_name, ctx["page_width"])
     _log("5/5 썸네일 생성…")
     main = thumbnails.main_thumbnail(product_paths[0])
     gallery = thumbnails.gallery_thumbnails(images_by_role, roles)
@@ -66,5 +69,31 @@ def run_pipeline(req: dict, product_paths: list[str], app_paths: list[str],
 
     secs = round(time.time() - t0, 1)
     _log(f"완료 — {secs}초")
+
+    # 🎯 [추가] 이미지 생성 품질 검증 (CLIP & BRISQUE) 구간
+    # 썸네일 갤러리에 들어간 PIL 이미지 후보군을 모아 정교하게 품질을 실시간 평가합니다.
+    eval_scores = {"clip": None, "brisque": None, "n_images": 0}
+    try:
+        if gallery:
+            _log("품질 평가 및 모니터링(CLIP & BRISQUE) 연산 시작…")
+            eval_scores = score_images(gallery, req)
+            _log(f"품질 점수 측정 성공: {eval_scores}")
+            
+            # 🎯 Langfuse 관측 서버로 점수 전송
+            logged = attach_scores_to_langfuse(eval_scores)
+            if logged:
+                _log("Langfuse 대시보드 점수 매핑 완료!")
+    except Exception as eval_err:
+        _log(f"[에러] 품질 평가 도중 무해한 예외 발생(스킵): {eval_err}")
+
     flush()  # 대기 중 LangFuse 트레이스 전송 (비활성이면 no-op)
-    return {"page": page, "main": main, "gallery": gallery, "seconds": secs, **geo}
+    
+    # 🎯 리턴 딕셔너리에 'evaluation' 항목으로 점수를 탑재해 main.py 및 프론트엔드로 전달합니다.
+    return {
+        "page": page, 
+        "main": main, 
+        "gallery": gallery, 
+        "seconds": secs, 
+        "evaluation": eval_scores,  # 추가된 품질 점수 결과
+        **geo
+    }

@@ -90,7 +90,7 @@ async def generate_detail_page(
                 
             app_paths.append(str(file_path))
 
-        # 3. 팀원분이 설계한 원본 파이프라인 함수를 수정 없이 그대로 실행하는 구간이다.
+        # 3. 파이프라인 함수 실행 (내부에서 이미지 생성 및 품질 채점/Langfuse 저장이 한 번에 일어납니다)
         result = run_pipeline(req, product_paths, app_paths, theme_name=theme_name)
         
         # 4. 반환된 PIL 이미지를 프론트엔드가 그릴 수 있게 Base64로 안전하게 변환한다.
@@ -100,11 +100,15 @@ async def generate_detail_page(
             pil_img.save(buf, format="PNG")
             return base64.b64encode(buf.getvalue()).decode("utf-8")
 
+        # pipeline_service가 계산해서 건네준 evaluation 점수를 파싱해 프론트엔드로 전달합니다.
+        eval_scores = result.get("evaluation", {"clip": None, "brisque": None, "n_images": 0})
+
         return {
             "detail_page": to_b64(result["page"]),
             "main": to_b64(result["main"]),
             "gallery": [to_b64(g) for g in result["gallery"]],
-            "seconds": round(time.time() - start_time, 1)
+            "seconds": round(time.time() - start_time, 1),
+            "evaluation": eval_scores  # 🎯 프론트엔드로 최종 전달되는 점수 정보!
         }
 
     finally:

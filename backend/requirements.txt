@@ -12,3 +12,4 @@ python-multipart
 langfuse
 python-dotenv
 langchain-openai
+piq

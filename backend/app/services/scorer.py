@@ -110,6 +110,11 @@ def brisque_score(images: Any) -> float | None:
     try:
         import torch
         import piq
+        
+        # 🎯 [수정 1] 상단 CLIP 장치 체크와 싱글톤 구성을 고려해 동적으로 장치 판단
+        bundle = _get_clip()
+        device = bundle[2] if bundle else ("cuda" if torch.cuda.is_available() else "cpu")
+        
     except Exception as e:
         print(f"[scoring] BRISQUE 비활성화(piq 미설치?): {e}", flush=True)
         return None
@@ -118,7 +123,9 @@ def brisque_score(images: Any) -> float | None:
     for im in imgs:
         try:
             with torch.no_grad():
-                x = _to_tensor(im)
+                # 🎯 [수정 2] 텐서를 생성한 직후 현재 런타임 장치(.to(device))로 밀어 넣어줍니다!
+                x = _to_tensor(im).to(device)
+                
                 vals.append(float(piq.brisque(x, data_range=1.0).item()))
         except Exception as e:
             print(f"[scoring] brisque 개별 실패(스킵): {e}", flush=True)

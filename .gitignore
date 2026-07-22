@@ -11,3 +11,10 @@ __pycache__/
 .venv/
 Miniconda3-*
 backend/model_hf/.env
+
+# Environment Variables & Keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key

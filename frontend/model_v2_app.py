@@ -5,7 +5,7 @@
 
 실행:
     # 1) model-v2 워커(포트 8010)
-    cd backend && uvicorn main_v2:app --host 0.0.0.0 --port 8010
+    cd backend && uvicorn main_v2:app --host 127.0.0.1 --port 8010
     # 2) 이 테스트 UI (worker 주소는 MODEL_V2_BACKEND_URL, 기본 http://127.0.0.1:8010)
     streamlit run frontend/model_v2_app.py
 ⚠️ '상세페이지 생성'은 **유료**(LLM·이미지 API)다. preview는 무과금이다.
@@ -131,7 +131,7 @@ mc.sync_inputs(state, current_fp)   # 입력이 바뀌었으면 preview·승인 
 st.divider()
 pcol, _ = st.columns([1, 3])
 if pcol.button("🔎 무과금 미리보기 (preview)", type="primary",
-               use_container_width=True, key="mv2_preview_btn"):
+               width="stretch", key="mv2_preview_btn"):
     if not product_files:
         st.error("제품 이미지를 1장 이상 올려주세요.")
     else:
@@ -165,7 +165,7 @@ if state.preview is not None and current_fp == state.preview_fp:
 
     gen_enabled = mc.can_generate(state, current_fp)
     if st.button("🚀 상세페이지 생성 (유료)", disabled=not gen_enabled,
-                 use_container_width=True, key="mv2_gen_btn"):
+                 width="stretch", key="mv2_gen_btn"):
         res = mc.attempt_generate(state, current_fp, req, product_files,
                                   app_files, theme_name)
         # 성공·실패 무관 — 승인은 소비됐다. 다음 run에서 체크박스도 false로 되돌린다.
@@ -178,7 +178,7 @@ if state.preview is not None and current_fp == state.preview_fp:
             page_bytes = r["detail_page_png"]
             t1, t2, t3 = st.tabs(["📄 상세이미지", "🖼️ 썸네일", "🔎 warnings·trace"])
             with t1:
-                st.image(Image.open(io.BytesIO(page_bytes)), use_container_width=True)
+                st.image(Image.open(io.BytesIO(page_bytes)), width="stretch")
                 st.download_button("상세이미지 (PNG)", page_bytes,
                                    "detail_page.png", "image/png")
             with t2:

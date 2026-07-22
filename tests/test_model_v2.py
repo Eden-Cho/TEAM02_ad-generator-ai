@@ -12,6 +12,7 @@ import os
 import sys
 import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +25,7 @@ if str(_BACKEND) not in sys.path:
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main_v2  # noqa: E402  (model_v2/를 sys.path에 올린다)
+from app.api.v1 import model_v2 as mv2_api  # noqa: E402  (유료 스위치)
 from app.services import model_v2_pipeline as mv2  # noqa: E402
 
 
@@ -74,11 +76,124 @@ class OptionsPreviewTest(unittest.TestCase):
         self.assertIsNone(scenes["lifestyle"])
 
 
-class GenerateFakeBoundaryTest(unittest.TestCase):
-    """유료 경계만 fake — 응답 필드·warnings·trace 무손실 확인."""
+class PaidGateTest(unittest.TestCase):
+    """유료 생성 폐쇄 스위치 — 기본 비활성. 차단은 multipart 파싱·파일 저장·파이프라인 前."""
 
     def setUp(self):
         self.client = TestClient(main_v2.app)
+        # 파이프라인·유료 경계가 단 한 번도 불리지 않아야 한다
+        self.run_spy = mock.patch.object(
+            mv2, "run_pipeline", side_effect=AssertionError("run_pipeline 호출됨"))
+        self.img_spy = mock.patch.object(
+            mv2.image_generator, "generate_image_v2",
+            side_effect=AssertionError("이미지 API 호출됨"))
+        self.llm_spy = mock.patch.object(
+            mv2.llm, "chat_json", side_effect=AssertionError("LLM 호출됨"))
+        for p in (self.run_spy, self.img_spy, self.llm_spy):
+            p.start()
+            self.addCleanup(p.stop)
+
+    @contextmanager
+    def _disabled_env(self, value=None):
+        """MODEL_V2_PAID_ENABLED만 조작하고 복원한다(다른 환경변수는 건드리지 않는다)."""
+        key = "MODEL_V2_PAID_ENABLED"
+        old = os.environ.get(key)
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+        try:
+            yield
+        finally:
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
+
+    def test_disabled_by_default_blocks_generate(self):
+        with self._disabled_env():
+            r = self.client.post("/api/model-v2/generate-detail-page",
+                                 data={"req_json": _TECH_REQ, "theme_name": "light"},
+                                 files=_files())
+        self.assertEqual(r.status_code, 503, r.text[:200])
+        self.assertEqual(r.json()["detail"], mv2_api.PAID_DISABLED_MSG)
+
+    def test_blocked_before_multipart_parse(self):
+        """필수 폼 필드가 아예 없는 요청도 422가 아니라 503 — 파싱 前 차단의 증거."""
+        with self._disabled_env():
+            r = self.client.post("/api/model-v2/generate-detail-page")
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json()["detail"], mv2_api.PAID_DISABLED_MSG)
+        # 잘못된 body를 보내도 동일(본문을 읽지 않는다)
+        with self._disabled_env():
+            r2 = self.client.post("/api/model-v2/generate-detail-page",
+                                  content=b"\x00\x01 not multipart",
+                                  headers={"content-type": "multipart/form-data; boundary=x"})
+        self.assertEqual(r2.status_code, 503)
+
+    def test_only_literal_one_enables(self):
+        for val in ("", "0", "true", "TRUE", "yes", "on", "2", "1x", "enabled"):
+            with self.subTest(value=val):
+                with self._disabled_env(val):
+                    self.assertFalse(mv2_api.paid_enabled())
+                    r = self.client.post("/api/model-v2/generate-detail-page",
+                                         data={"req_json": _TECH_REQ}, files=_files())
+                self.assertEqual(r.status_code, 503)
+        with self._disabled_env("1"):
+            self.assertTrue(mv2_api.paid_enabled())
+        with self._disabled_env(" 1 "):
+            self.assertTrue(mv2_api.paid_enabled())
+
+    def test_path_variants_do_not_bypass_gate(self):
+        """canonical·trailing slash·URL 인코딩·대소문자 변형으로 유료 실행에 도달하지 못한다.
+
+        파이프라인·LLM·이미지 mock은 호출 시 AssertionError를 던지므로, 어떤 변형이든
+        핸들러에 도달했다면 이 테스트가 실패한다.
+        """
+        variants = [
+            "/api/model-v2/generate-detail-page",        # canonical
+            "/api/model-v2/generate-detail-page/",       # trailing slash
+            "/api/model-v2/generate-detail-page?x=1",    # 쿼리스트링
+            "/api/model-v2/generate%2Ddetail%2Dpage",    # URL 인코딩(하이픈)
+            "/api/model-v2/./generate-detail-page",      # 점 세그먼트
+            "//api/model-v2/generate-detail-page",       # 중복 슬래시
+            "/API/MODEL-V2/GENERATE-DETAIL-PAGE",        # 대문자
+            "/api/model-v2/other/../generate-detail-page",   # 상위 참조
+        ]
+        for path in variants:
+            with self.subTest(path=path):
+                with self._disabled_env():
+                    r = self.client.post(path, data={"req_json": _TECH_REQ},
+                                         files=_files())
+                self.assertNotEqual(r.status_code, 200,
+                                    f"{path} 가 유료 경로로 통과했다")
+                # 성공적으로 생성된 응답 본문이 아니어야 한다
+                self.assertNotIn("detail_page", r.text[:500])
+
+    def test_preview_stays_free_while_paid_disabled(self):
+        """preview는 무과금이라 스위치와 무관하게 동작한다(유료 호출 0회)."""
+        with self._disabled_env(), \
+             mock.patch.object(mv2.prompt_generator, "chat_json",
+                               side_effect=AssertionError("LLM 호출")):
+            r = self.client.post("/api/model-v2/preview",
+                                 data={"req_json": _TECH_REQ}, files=_files())
+        self.assertEqual(r.status_code, 200, r.text[:200])
+        self.assertEqual(r.json()["expected_calls"]["images_generate"], 3)
+
+    def test_options_unaffected(self):
+        with self._disabled_env():
+            self.assertEqual(self.client.get("/api/model-v2/options").status_code, 200)
+
+
+class GenerateFakeBoundaryTest(unittest.TestCase):
+    """유료 경계만 fake — 응답 필드·warnings·trace 무손실 확인(paid 활성 상태 계약)."""
+
+    def setUp(self):
+        self.client = TestClient(main_v2.app)
+        # 유료 스위치를 명시적으로 켠 상태의 기존 generate 계약을 검증한다
+        paid = mock.patch.dict(os.environ, {"MODEL_V2_PAID_ENABLED": "1"})
+        paid.start()
+        self.addCleanup(paid.stop)
         self.geo = {"geo_html": "<html>x</html>",
                     "structured_data": [{"@type": "Product"}],
                     "faq": [{"q": "Q", "a": "A"}], "warnings": ["GEO_W"]}

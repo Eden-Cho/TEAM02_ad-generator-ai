@@ -348,7 +348,11 @@ class ErrorNoLeakTest(unittest.TestCase):
 
 
 class TeamFilesUnchangedTest(unittest.TestCase):
-    """팀 frontend·backend·model·Docker 파일이 upstream/main과 바이트 동일(신규는 병렬 추가만)."""
+    """**이 브랜치가** 팀 frontend·backend·model·Docker 파일을 건드리지 않았는지 확인.
+
+    기준은 움직이는 `upstream/main`이 아니라 **분기 지점(merge-base)** 이다
+    (팀이 main에 새 커밋을 올려도 우리 불변식은 그대로여야 한다).
+    """
 
     _PATHS = ["frontend/app.py", "model", "docker-compose.yml",
               "backend/Dockerfile", "frontend/Dockerfile", "backend/main.py",
@@ -356,14 +360,18 @@ class TeamFilesUnchangedTest(unittest.TestCase):
               "backend/app/services/pipeline_service.py",
               "backend/app/services/scorer.py"]
 
-    def test_team_paths_byte_identical_with_upstream_main(self):
+    def test_branch_did_not_touch_team_paths(self):
+        base = subprocess.run(["git", "merge-base", "HEAD", "upstream/main"],
+                              cwd=str(_REPO), capture_output=True, text=True)
+        if base.returncode != 0 or not base.stdout.strip():
+            self.skipTest("upstream/main 없음 — 분기 지점을 확인할 수 없다")
         for rel in self._PATHS:
             with self.subTest(path=rel):
                 r = subprocess.run(
-                    ["git", "diff", "--exit-code", "upstream/main", "--", rel],
+                    ["git", "diff", "--exit-code", base.stdout.strip(), "HEAD", "--", rel],
                     cwd=str(_REPO), capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0,
-                                 f"{rel} 이 upstream/main과 다름:\n{r.stdout[:800]}")
+                                 f"{rel} 을 이 브랜치가 수정했다:\n{r.stdout[:800]}")
 
 
 if __name__ == "__main__":

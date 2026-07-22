@@ -103,8 +103,20 @@ class WorkerBaselineIsolationTest(unittest.TestCase):
         self.assertTrue(Path(base).is_absolute())
 
 
+def _branch_point():
+    """이 브랜치가 팀 main에서 갈라진 지점(merge-base). 없으면 None."""
+    r = subprocess.run(["git", "merge-base", "HEAD", "upstream/main"],
+                       cwd=str(_REPO), capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
 class TeamFilesUnchangedTest(unittest.TestCase):
-    """팀 파일이 upstream/main과 바이트 동일한지 재확인(병렬 추가가 팀 코드를 건드리지 않음)."""
+    """**이 브랜치가** 팀 파일을 건드리지 않았는지 확인한다.
+
+    기준은 `upstream/main`(움직인다)이 아니라 **분기 지점(merge-base)** 이다. 팀이 main에
+    새 커밋을 올리면 upstream 기준 비교는 우리가 아무것도 안 해도 깨지는데, 그건 "우리가
+    수정했다"가 아니라 "upstream이 앞서갔다"이므로 검증하려는 불변식이 아니다.
+    """
 
     _TEAM_FILES = [
         "backend/main.py",
@@ -116,14 +128,17 @@ class TeamFilesUnchangedTest(unittest.TestCase):
         "backend/Dockerfile",
     ]
 
-    def test_team_files_byte_identical_with_upstream_main(self):
+    def test_branch_did_not_touch_team_files(self):
+        base = _branch_point()
+        if not base:
+            self.skipTest("upstream/main 없음 — 분기 지점을 확인할 수 없다")
         for rel in self._TEAM_FILES:
             with self.subTest(file=rel):
                 r = subprocess.run(
-                    ["git", "diff", "--exit-code", "upstream/main", "--", rel],
+                    ["git", "diff", "--exit-code", base, "HEAD", "--", rel],
                     cwd=str(_REPO), capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0,
-                                 f"{rel} 이 upstream/main과 다름:\n{r.stdout[:1000]}")
+                                 f"{rel} 을 이 브랜치가 수정했다:\n{r.stdout[:1000]}")
 
 
 if __name__ == "__main__":
